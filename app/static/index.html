@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat with Docs</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2230; --muted:#6b7280; --line:#e5e7eb; --accent:#2f5bea; --ok:#15803d; --bad:#b91c1c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:12px; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line); }
+  header h1 { font-size:17px; margin:0 auto 0 0; }
+  main { max-width:1000px; margin:20px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px; }
+  input, select, textarea, button { font:inherit; }
+  input, select, textarea { padding:8px 10px; border:1px solid var(--line); border-radius:7px; width:100%; background:#fff; }
+  button { padding:8px 14px; border:0; border-radius:7px; background:var(--accent); color:#fff; cursor:pointer; white-space:nowrap; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button:disabled { opacity:.55; cursor:wait; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .tabs { display:flex; gap:4px; margin-bottom:12px; }
+  .tabs button { background:transparent; color:var(--muted); border-radius:7px 7px 0 0; }
+  .tabs button.active { background:var(--card); color:var(--ink); border:1px solid var(--line); border-bottom-color:var(--card); }
+  .hidden { display:none !important; }
+  .muted { color:var(--muted); font-size:13px; }
+  .msg { padding:12px 14px; border-radius:9px; margin:10px 0; white-space:pre-wrap; }
+  .msg.user { background:#eef2ff; margin-left:15%; }
+  .msg.bot { background:#f9fafb; border:1px solid var(--line); margin-right:5%; }
+  .cite { display:inline-block; background:var(--accent); color:#fff; border-radius:4px; padding:0 5px; font-size:12px; cursor:pointer; margin:0 1px; }
+  details.src { margin-top:8px; font-size:13px; }
+  details.src div { border-left:3px solid var(--line); padding:4px 10px; margin:6px 0; }
+  details.src div.cited { border-left-color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:12px 0; }
+  .metric { border:1px solid var(--line); border-radius:9px; padding:10px 12px; }
+  .metric b { display:block; font-size:22px; }
+  .yes { color:var(--ok); font-weight:600; } .no { color:var(--bad); font-weight:600; }
+  #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 16px; border-radius:8px; display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📄 Chat with Docs</h1>
+  <span id="who" class="muted"></span>
+  <button id="logoutBtn" class="ghost hidden">Log out</button>
+</header>
+
+<main>
+  <!-- Login / register -->
+  <section id="authView" class="card" style="max-width:420px;margin:60px auto">
+    <h2 style="margin-top:0">Sign in</h2>
+    <form id="authForm">
+      <p><input id="email" type="email" placeholder="Email" required /></p>
+      <p><input id="password" type="password" placeholder="Password (min 8 characters)" minlength="8" required /></p>
+      <div class="row"><button type="submit">Log in</button><button type="button" class="ghost" id="registerBtn">Create account</button></div>
+    </form>
+  </section>
+
+  <!-- App -->
+  <section id="appView" class="hidden">
+    <div class="card row">
+      <select id="wsSelect" style="max-width:320px"></select>
+      <input id="wsName" placeholder="New workspace name" style="max-width:260px" />
+      <button id="wsCreate">Add workspace</button>
+      <button id="wsDelete" class="ghost" style="margin-left:auto">Delete workspace</button>
+    </div>
+
+    <div class="tabs">
+      <button data-tab="chat" class="active">Chat</button>
+      <button data-tab="docs">Documents</button>
+      <button data-tab="evals">Evaluation</button>
+    </div>
+
+    <div id="tab-chat" class="card">
+      <div id="messages"><p class="muted">Upload a PDF in the Documents tab, then ask a question about it.</p></div>
+      <form id="chatForm" class="row" style="margin-top:12px">
+        <input id="question" placeholder="Ask a question about your documents…" required />
+        <button type="submit">Ask</button>
+      </form>
+    </div>
+
+    <div id="tab-docs" class="card hidden">
+      <form id="uploadForm" class="row">
+        <input id="fileInput" type="file" accept="application/pdf" required />
+        <button type="submit">Upload PDF</button>
+      </form>
+      <p class="muted">Text-based PDFs only. The first upload downloads the free embedding model, so give it a minute.</p>
+      <table><thead><tr><th>File</th><th>Pages</th><th>Chunks</th><th></th></tr></thead><tbody id="docRows"></tbody></table>
+    </div>
+
+    <div id="tab-evals" class="card hidden">
+      <p style="margin-top:0">Paste test questions as JSON. <code>expected_page</code> and <code>expected_filename</code> are optional, but you need them for the retrieval and citation scores.</p>
+      <textarea id="evalJson" rows="9">[
+  {"question": "What is the refund period?", "expected_answer": "30 days from purchase", "expected_filename": "policy.pdf", "expected_page": 2}
+]</textarea>
+      <div class="row" style="margin-top:8px">
+        <label class="row muted" style="width:auto"><input type="checkbox" id="useJudge" checked style="width:auto" /> Use LLM judge (1 extra AI call per question)</label>
+        <input id="evalNotes" placeholder="Notes for this run, e.g. chunk_size=900" style="max-width:300px" />
+        <button id="runEval">Run evaluation</button>
+      </div>
+      <div id="evalResult"></div>
+      <h3>Past runs</h3>
+      <table><thead><tr><th>#</th><th>When</th><th>Model</th><th>Retrieval hit</th><th>Citation hit</th><th>Judge pass</th><th>Notes</th></tr></thead><tbody id="runRows"></tbody></table>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem("token");
+let wsId = null;
+
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 4000); }
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = (v) => v == null ? "–" : Math.round(v * 100) + "%";
+
+async function api(path, opts = {}) {
+  const headers = opts.headers || {};
+  if (token) headers.Authorization = "Bearer " + token;
+  if (opts.json !== undefined) { headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(opts.json); }
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401 && token) { logout(); throw new Error("Session expired. Log in again."); }
+  if (!res.ok) { let d = res.statusText; try { d = (await res.json()).detail; } catch {} throw new Error(typeof d === "string" ? d : JSON.stringify(d)); }
+  return res.status === 204 ? null : res.json();
+}
+
+async function busy(btn, fn) { btn.disabled = true; try { await fn(); } catch (e) { toast(e.message); } finally { btn.disabled = false; } }
+
+// ---------- Auth ----------
+async function login(email, password) {
+  const body = new URLSearchParams({ username: email, password });
+  const r = await api("/api/auth/login", { method: "POST", body });
+  token = r.access_token; localStorage.setItem("token", token); await boot();
+}
+$("authForm").onsubmit = (e) => { e.preventDefault(); busy(e.submitter, () => login($("email").value, $("password").value)); };
+$("registerBtn").onclick = (e) => busy(e.target, async () => {
+  const r = await api("/api/auth/register", { method: "POST", json: { email: $("email").value, password: $("password").value } });
+  token = r.access_token; localStorage.setItem("token", token); await boot();
+});
+function logout() { token = null; localStorage.removeItem("token"); $("appView").classList.add("hidden"); $("authView").classList.remove("hidden"); $("logoutBtn").classList.add("hidden"); $("who").textContent = ""; }
+$("logoutBtn").onclick = logout;
+
+// ---------- Workspaces ----------
+async function loadWorkspaces(selectId) {
+  let list = await api("/api/workspaces");
+  if (!list.length) list = [await api("/api/workspaces", { method: "POST", json: { name: "My first workspace" } })];
+  $("wsSelect").innerHTML = list.map(w => `<option value="${w.id}">${esc(w.name)} (${w.document_count} docs)</option>`).join("");
+  wsId = selectId || Number(localStorage.getItem("ws")) || list[0].id;
+  if (!list.some(w => w.id === wsId)) wsId = list[0].id;
+  $("wsSelect").value = wsId; localStorage.setItem("ws", wsId);
+  $("messages").innerHTML = '<p class="muted">Ask a question about the documents in this workspace.</p>';
+  await Promise.all([loadDocs(), loadRuns()]);
+}
+$("wsSelect").onchange = () => loadWorkspaces(Number($("wsSelect").value));
+$("wsCreate").onclick = (e) => busy(e.target, async () => {
+  const name = $("wsName").value.trim(); if (!name) return toast("Enter a workspace name");
+  const w = await api("/api/workspaces", { method: "POST", json: { name } }); $("wsName").value = ""; await loadWorkspaces(w.id);
+});
+$("wsDelete").onclick = (e) => { if (confirm("Delete this workspace and all its documents?")) busy(e.target, async () => { await api(`/api/workspaces/${wsId}`, { method: "DELETE" }); localStorage.removeItem("ws"); await loadWorkspaces(); }); };
+
+// ---------- Tabs ----------
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x === b));
+  ["chat", "docs", "evals"].forEach(t => $("tab-" + t).classList.toggle("hidden", t !== b.dataset.tab));
+});
+
+// ---------- Documents ----------
+async function loadDocs() {
+  const docs = await api(`/api/workspaces/${wsId}/documents`);
+  $("docRows").innerHTML = docs.length ? docs.map(d => `<tr><td>${esc(d.filename)}</td><td>${d.num_pages}</td><td>${d.num_chunks}</td>
+    <td><button class="ghost" onclick="delDoc(${d.id})">Delete</button></td></tr>`).join("") : '<tr><td colspan="4" class="muted">No documents yet.</td></tr>';
+}
+window.delDoc = async (id) => { try { await api(`/api/workspaces/${wsId}/documents/${id}`, { method: "DELETE" }); await loadWorkspaces(wsId); } catch (e) { toast(e.message); } };
+$("uploadForm").onsubmit = (e) => { e.preventDefault(); busy(e.submitter, async () => {
+  const fd = new FormData(); fd.append("file", $("fileInput").files[0]);
+  const d = await api(`/api/workspaces/${wsId}/documents`, { method: "POST", body: fd });
+  toast(`Uploaded ${d.filename}: ${d.num_pages} pages, ${d.num_chunks} chunks`); $("fileInput").value = ""; await loadWorkspaces(wsId);
+}); };
+
+// ---------- Chat ----------
+function renderAnswer(r) {
+  const answer = esc(r.answer).replace(/\[(\d+)\]/g, (m, n) => {
+    const s = r.sources[n - 1]; return s ? `<span class="cite" title="${esc(s.filename)} p.${s.page}">${n}</span>` : m;
+  });
+  const cited = new Set(r.cited_refs);
+  const srcs = r.sources.map(s => `<div class="${cited.has(s.ref) ? "cited" : ""}"><b>[${s.ref}] ${esc(s.filename)}, page ${s.page}</b>
+    <span class="muted">score ${s.score}</span><br>${esc(s.text.slice(0, 400))}${s.text.length > 400 ? "…" : ""}</div>`).join("");
+  return `${answer}<div class="muted" style="margin-top:6px">${esc(r.model)} · ${r.latency_ms} ms</div>
+    ${r.sources.length ? `<details class="src"><summary>Sources (${r.cited_refs.length} cited of ${r.sources.length} retrieved)</summary>${srcs}</details>` : ""}`;
+}
+$("chatForm").onsubmit = (e) => { e.preventDefault(); const q = $("question").value.trim(); if (!q) return;
+  const box = $("messages"); if (box.querySelector("p.muted")) box.innerHTML = "";
+  box.insertAdjacentHTML("beforeend", `<div class="msg user">${esc(q)}</div>`); $("question").value = "";
+  const pending = document.createElement("div"); pending.className = "msg bot muted"; pending.textContent = "Thinking…"; box.appendChild(pending);
+  busy(e.submitter, async () => {
+    try { const r = await api(`/api/workspaces/${wsId}/chat`, { method: "POST", json: { question: q } }); pending.className = "msg bot"; pending.innerHTML = renderAnswer(r); }
+    catch (err) { pending.textContent = "Error: " + err.message; throw err; }
+  });
+};
+
+// ---------- Evals ----------
+const yn = (v) => v === undefined ? "–" : v ? '<span class="yes">yes</span>' : '<span class="no">no</span>';
+function renderRun(run) {
+  const s = run.summary;
+  const m = [["Retrieval hit rate", pct(s.retrieval_hit_rate)], ["MRR", s.mrr ?? "–"], ["Citation hit rate", pct(s.citation_hit_rate)],
+             ["Answers with citations", pct(s.cites_sources_rate)], ["Avg judge score (1-5)", s.avg_judge_score ?? "–"],
+             ["Judge pass rate (≥4)", pct(s.judge_pass_rate)], ["Avg token F1", s.avg_token_f1 ?? "–"], ["Avg latency", s.avg_latency_ms ? Math.round(s.avg_latency_ms) + " ms" : "–"]];
+  const rows = run.results.map(r => r.error ? `<tr><td>${esc(r.question)}</td><td colspan="5" class="no">${esc(r.error)}</td></tr>` :
+    `<tr><td>${esc(r.question)}<div class="muted">Expected: ${esc(r.expected_answer)}</div></td><td>${esc(r.answer)}</td>
+     <td>${yn(r.retrieval_hit)}</td><td>${yn(r.citation_hit)}</td><td>${r.judge_score ?? "–"}<div class="muted">${esc(r.judge_reason || "")}</div></td><td>${r.token_f1}</td></tr>`).join("");
+  return `<h3>Run #${run.id} · ${esc(run.model)} · ${s.cases} questions${s.errors ? `, ${s.errors} errors` : ""}</h3>
+    <div class="metrics">${m.map(([k, v]) => `<div class="metric"><span class="muted">${k}</span><b>${v}</b></div>`).join("")}</div>
+    <table><thead><tr><th>Question</th><th>Answer</th><th>Retrieved</th><th>Cited</th><th>Judge</th><th>F1</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function loadRuns() {
+  const runs = await api(`/api/workspaces/${wsId}/evals`);
+  $("runRows").innerHTML = runs.length ? runs.map(r => `<tr style="cursor:pointer" onclick="showRun(${r.id})"><td>${r.id}</td><td>${new Date(r.created_at).toLocaleString()}</td>
+    <td>${esc(r.model)}</td><td>${pct(r.summary.retrieval_hit_rate)}</td><td>${pct(r.summary.citation_hit_rate)}</td><td>${pct(r.summary.judge_pass_rate)}</td><td>${esc(r.notes)}</td></tr>`).join("")
+    : '<tr><td colspan="7" class="muted">No runs yet.</td></tr>';
+}
+window.showRun = async (id) => { try { $("evalResult").innerHTML = renderRun(await api(`/api/workspaces/${wsId}/evals/${id}`)); } catch (e) { toast(e.message); } };
+$("runEval").onclick = (e) => busy(e.target, async () => {
+  let cases; try { cases = JSON.parse($("evalJson").value); } catch { throw new Error("The JSON isn't valid"); }
+  $("evalResult").innerHTML = '<p class="muted">Running… this makes 1–2 AI calls per question.</p>';
+  const run = await api(`/api/workspaces/${wsId}/evals`, { method: "POST", json: { cases, use_llm_judge: $("useJudge").checked, notes: $("evalNotes").value } });
+  $("evalResult").innerHTML = renderRun(run); await loadRuns();
+});
+
+// ---------- Boot ----------
+async function boot() {
+  if (!token) return logout();
+  try {
+    const me = await api("/api/auth/me");
+    $("who").textContent = me.email; $("logoutBtn").classList.remove("hidden");
+    $("authView").classList.add("hidden"); $("appView").classList.remove("hidden");
+    await loadWorkspaces();
+  } catch (e) { toast(e.message); }
+}
+boot();
+</script>
+</body>
+</html>

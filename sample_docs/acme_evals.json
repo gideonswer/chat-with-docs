@@ -1,0 +1,9 @@
+[
+  {"question": "How many days do customers have to request a refund?", "expected_answer": "Within 30 days of purchase", "expected_filename": "acme_policy.pdf", "expected_page": 2},
+  {"question": "Can sale items be refunded?", "expected_answer": "No, sale items can be exchanged but not refunded", "expected_filename": "acme_policy.pdf", "expected_page": 2},
+  {"question": "How much does express shipping cost?", "expected_answer": "Rs 149, and it arrives in 2 days", "expected_filename": "acme_policy.pdf", "expected_page": 3},
+  {"question": "When is standard shipping free?", "expected_answer": "On orders over Rs 999", "expected_filename": "acme_policy.pdf", "expected_page": 3},
+  {"question": "How long is the warranty on electronics?", "expected_answer": "1 year against manufacturing defects", "expected_filename": "acme_policy.pdf", "expected_page": 4},
+  {"question": "What are the support hours?", "expected_answer": "Monday to Saturday, 9 am to 6 pm IST", "expected_filename": "acme_policy.pdf", "expected_page": 4},
+  {"question": "Does Acme sell gift cards?", "expected_answer": "The documents don't say", "expected_filename": null, "expected_page": null}
+]
